@@ -1,27 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
 
-    <style name="SplashTheme" parent="Theme.AppCompat.NoActionBar" tools:ignore="ResourceName">
-        <item name="android:windowFullscreen">true</item>
+    <!--    闪屏页,用于系统在创建app进程之前显示的预览图片-->
+    <style name="SplashTheme" parent="AppTheme" >
         <item name="android:windowBackground">@drawable/main_layer_list_splash</item>
-        <item name="android:windowNoTitle">true</item>
-        <item name="android:windowActionBar">false</item>
-<!--        <item name="android:windowAnimationStyle">@style/main_Animation</item>-->
+    </style>
+    <!--    真正MainActivity的主题，如果需要对MainActivity主题进行定制，请写在下面-->
+    <style name="MainActivityTheme" parent="SplashTheme">
+        <!-- 切记不要将这个设置为空来优化UI绘制,否则某些activity动画会透视到桌面，
+                但是应该除了main其他的activity都可以去掉这个置为@null-->
+        <item name="android:windowBackground">@drawable/main_main_activity_window_background</item>
     </style>
 
-    <style name="main_Animation">
-        <item name="android:activityOpenEnterAnimation">@null</item>
-        <item name="android:activityOpenExitAnimation">@null</item>
-        <item name="android:activityCloseEnterAnimation">@null</item>
-        <item name="android:activityCloseExitAnimation">@null</item>
-        <item name="android:taskOpenEnterAnimation">@null</item>
-        <item name="android:taskOpenExitAnimation">@null</item>
-        <item name="android:taskCloseEnterAnimation">@null</item>
-        <item name="android:taskCloseExitAnimation">@null</item>
-        <item name="android:taskToFrontEnterAnimation">@null</item>
-        <item name="android:taskToFrontExitAnimation">@null</item>
-        <item name="android:taskToBackEnterAnimation">@null</item>
-        <item name="android:taskToBackExitAnimation">@null</item>
+    <style name="LoginTextInputStyle" parent="AppTheme" >
+        <item name="colorAccent">@color/common_level_two_font_color</item>
     </style>
 
 </resources>

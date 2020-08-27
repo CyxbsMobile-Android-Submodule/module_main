@@ -1,61 +1,116 @@
 package com.mredrock.cyxbs.main.viewmodel
 
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.MutableLiveData
-import com.mredrock.cyxbs.common.BaseApp
-import com.mredrock.cyxbs.common.event.LoginStateChangeEvent
-import com.mredrock.cyxbs.common.service.account.IAccountService
+import com.mredrock.cyxbs.common.BaseApp.Companion.context
+import com.mredrock.cyxbs.common.network.ApiGenerator
+import com.mredrock.cyxbs.common.network.CommonApiService
+import com.mredrock.cyxbs.common.network.exception.DefaultErrorHandler
 import com.mredrock.cyxbs.common.service.ServiceManager
+import com.mredrock.cyxbs.common.service.account.IAccountService
+import com.mredrock.cyxbs.common.utils.down.bean.DownMessageText
+import com.mredrock.cyxbs.common.utils.down.params.DownMessageParams
+import com.mredrock.cyxbs.common.utils.extensions.errorHandler
+import com.mredrock.cyxbs.common.utils.extensions.safeSubscribeBy
+import com.mredrock.cyxbs.common.utils.extensions.setSchedulers
 import com.mredrock.cyxbs.common.utils.extensions.takeIfNoException
 import com.mredrock.cyxbs.common.viewmodel.BaseViewModel
-import com.mredrock.cyxbs.common.viewmodel.event.ProgressDialogEvent
 import com.mredrock.cyxbs.main.R
+import com.mredrock.cyxbs.main.network.ExecuteOnceObserver
 import com.umeng.analytics.MobclickAgent
-import org.greenrobot.eventbus.EventBus
-import kotlin.concurrent.thread
+import io.reactivex.Observable
+import io.reactivex.android.schedulers.AndroidSchedulers
+import io.reactivex.schedulers.Schedulers
 
 /**
  * Created By jay68 on 2018/8/12.
  */
 class LoginViewModel : BaseViewModel() {
-    val backToMainEvent: LiveData<Boolean> = MutableLiveData()
+    var userAgreementIsCheck = false
 
-    fun login(stuNum: String?, idNum: String?) {
-        if (stuNum?.length ?: 0 < 10) {
-            toastEvent.value = R.string.main_activity_login_not_input_account
-            return
-        } else if (idNum?.length ?: 0 < 6) {
-            toastEvent.value = R.string.main_activity_login_not_input_password
-            return
-        }
-        verifyByWeb(stuNum!!, idNum!!)
-    }
+    //是否正在登录，防止用户多次点击
+    private var isLanding = false
 
-    private fun verifyByWeb(stuNum: String, idNum: String) {
-        thread {
-            val startTime = System.currentTimeMillis()
+    val userAgreementList: MutableList<DownMessageText> = mutableListOf()
 
+    fun login(stuNum: String?, idNum: String?, landing: () -> Unit, successAction: () -> Unit) {
+        if (isLanding) return
+        if (checkDataCorrect(stuNum, idNum)) return
+        isLanding = true
+        landing()
+        var isSuccess = false
+        val startTime = System.currentTimeMillis()
+        Observable.create<Boolean> {
             takeIfNoException(
                     action = {
-                        progressDialogEvent.postValue(ProgressDialogEvent.SHOW_NONCANCELABLE_DIALOG_EVENT)
                         val accountService = ServiceManager.getService(IAccountService::class.java)
-                        accountService.getVerifyService().login(BaseApp.context, stuNum, idNum)
+                        accountService.getVerifyService().login(context, stuNum!!, idNum!!)
                         MobclickAgent.onProfileSignIn(accountService.getUserService().getStuNum())
-                        EventBus.getDefault().post(LoginStateChangeEvent(true))
-                        (backToMainEvent as MutableLiveData).postValue(true)
+                        isSuccess = true
                     },
-                    doOnException = { e ->
-                        //todo 处理密码错误、HTTP异常等
+                    doOnException = {
+                        isSuccess = false
+                        throw it
                     },
                     doFinally = {
                         //网速太好的时候对话框只会闪一下，像bug一样
                         val curTime = System.currentTimeMillis()
-                        if (curTime - startTime < 500) {
-                            takeIfNoException { Thread.sleep(500 - curTime + startTime) }
+                        val waitTime = 2000
+                        if (curTime - startTime < waitTime) {
+                            takeIfNoException {
+                                Thread.sleep(waitTime - curTime + startTime)
+                                it.onNext(isSuccess)
+                            }
+                        } else {
+                            it.onNext(isSuccess)
                         }
-                        progressDialogEvent.postValue(ProgressDialogEvent.DISMISS_DIALOG_EVENT)
                     }
             )
-        }
+
+
+        }.subscribeOn(Schedulers.io()).observeOn(AndroidSchedulers.mainThread())
+                .safeSubscribeBy(
+                        onError = {
+                            isLanding = false
+                            landing()
+                            //交给封装的异常处理，应对不同的情况，给用户提示对应的信息
+                            DefaultErrorHandler.handle(it)
+                        },
+                        onNext = {
+                            isLanding = false
+                            if (it) successAction()
+                        }
+                ).isDisposed
     }
+
+    private fun checkDataCorrect(stuNum: String?, idNum: String?): Boolean {
+        if ((stuNum?.length ?: 0) < 10) {
+            toastEvent.value = R.string.main_activity_login_not_input_account
+            return true
+        } else if ((idNum?.length ?: 0) < 6) {
+            toastEvent.value = R.string.main_activity_login_not_input_password
+            return true
+        }
+        return false
+    }
+
+    fun getUserAgreement(successCallBack: () -> Unit) {
+        val time = System.currentTimeMillis()
+        ApiGenerator.getCommonApiService(CommonApiService::class.java)
+                .getDownMessage(DownMessageParams("zscy-main-userAgreement"))
+                .setSchedulers(observeOn = Schedulers.io())
+                .errorHandler()
+                .doOnNext {
+                    //有时候网路慢会转一下圈圈，但是有时候网络快，圈圈就像是闪了一下，像bug，就让它最少转一秒吧
+                    val l = 1000 - (System.currentTimeMillis() - time)
+                    Thread.sleep(if (l > 0) l else 0)
+                }
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(ExecuteOnceObserver(
+                        onExecuteOnceNext = {
+                            userAgreementList.clear()
+                            userAgreementList.addAll(it.data.textList)
+                            successCallBack()
+                        }
+                ))
+    }
+
 }
